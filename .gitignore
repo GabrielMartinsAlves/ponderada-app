@@ -1,0 +1,17 @@
+# Segredos e variáveis de ambiente
+.env
+.env.*
+!.env.example
+
+# Credenciais de teste — não versionar
+docs/demo-creds.txt
+
+# Dados e artefatos
+*.csv
+# Artefato de debug do Android (gerado pelo adb, ~20 MB) — não faz parte da entrega
+bugreport-*.zip
+
+# IDE e ferramentas de scratch (não fazem parte da entrega)
+.idea/
+.claude
+_iconprep/
