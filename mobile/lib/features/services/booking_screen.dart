@@ -10,10 +10,30 @@ import '../appointments/agendamentos_repository.dart';
 import '../home/unidades_repository.dart';
 import 'booking_providers.dart';
 import 'catalogo_repository.dart';
+import 'disponibilidade.dart';
+
+/// Pre-preenchimento do fluxo de agendamento vindo da busca por linguagem natural.
+/// Todos os campos sao opcionais: a pessoa completa o que faltar e sempre confirma.
+class BookingPrefill {
+  final String? servico;
+  final String? profissional;
+  final String? unidadeId;
+  final String? data; // YYYY-MM-DD
+  final String? hora; // horário específico já disponível, para pré-seleção
+  final List<String> sugestoes;
+  const BookingPrefill({
+    this.servico,
+    this.profissional,
+    this.unidadeId,
+    this.data,
+    this.hora,
+    this.sugestoes = const [],
+  });
+}
 
 class BookingScreen extends ConsumerStatefulWidget {
-  final String? servico;
-  const BookingScreen({super.key, this.servico});
+  final BookingPrefill? prefill;
+  const BookingScreen({super.key, this.prefill});
   @override
   ConsumerState<BookingScreen> createState() => _BookingScreenState();
 }
@@ -28,6 +48,35 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   DateTime? _data;
   String? _slot;
   bool _criando = false;
+
+  // Servico vem do pre-preenchimento (toque num servico ou intencao da busca por texto).
+  String? get _servico => widget.prefill?.servico;
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.prefill;
+    if (p == null) return;
+    // Aplica o que veio pre-preenchido; o que faltar a pessoa completa manualmente.
+    _unidadeId = p.unidadeId;
+    _prof = p.profissional;
+    _slot = p.hora; // horário específico pedido já vem selecionado, se houver
+    final d = p.data;
+    if (d != null) {
+      final parsed = DateTime.tryParse(d);
+      if (parsed != null) _data = DateTime(parsed.year, parsed.month, parsed.day);
+    }
+  }
+
+  // Sugestoes do backend que ainda estao livres e validas para a data atual.
+  // Somem quando a pessoa troca a data que gerou as sugestoes.
+  List<String> _sugestoesValidas(List<Slot> livres) {
+    final p = widget.prefill;
+    if (p == null || p.sugestoes.isEmpty || _data == null || p.data == null) return const [];
+    if (_ymd(_data!) != p.data) return const [];
+    final horasLivres = livres.map((s) => s.hora).toSet();
+    return p.sugestoes.where(horasLivres.contains).toList();
+  }
 
   String _ymd(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -77,7 +126,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     setState(() => _criando = true);
     try {
       final ag = await ref.read(agendamentosRepoProvider).criar(
-            servico: widget.servico ?? '',
+            servico: _servico ?? '',
             profissional: _prof!,
             unidadeId: _unidadeId,
             data: dataYmd,
@@ -100,7 +149,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       if (!mounted) return;
       setState(() => _slot = null);
       // recarrega os horários (o slot foi tomado por outra pessoa)
-      ref.invalidate(disponibilidadeProvider((dataYmd, _prof!, widget.servico)));
+      ref.invalidate(disponibilidadeProvider((dataYmd, _prof!, _servico)));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.message), backgroundColor: LummaColors.mauveDark),
       );
@@ -125,7 +174,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
               const Icon(Icons.spa_rounded, color: LummaColors.mauveDark),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(widget.servico ?? 'Serviço',
+                child: Text(_servico ?? 'Serviço',
                     style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: LummaColors.text)),
               ),
             ]),
@@ -170,7 +219,17 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       loading: () => const _ChipsLoading(),
       error: (e, _) => _InlineErro(e is ApiException ? e.message : 'Erro ao carregar unidades',
           () => ref.invalidate(unidadesProvider)),
-      data: (unidades) => Wrap(
+      data: (unidades) {
+        // Resolve o nome curto da unidade pre-preenchida (usado no comprovante e na notificacao).
+        if (_unidadeId != null && _unidadeNome == null) {
+          for (final u in unidades) {
+            if (u.id == _unidadeId) {
+              _unidadeNome = u.nomeCurto;
+              break;
+            }
+          }
+        }
+        return Wrap(
         spacing: 8,
         runSpacing: 8,
         children: unidades
@@ -185,24 +244,29 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
                   }),
                 ))
             .toList(),
-      ),
+        );
+      },
     );
   }
 
   Widget _profissionaisArea() {
     if (_unidadeId == null) return const _Hint('Escolha uma unidade primeiro.');
-    final key = (_unidadeId, widget.servico);
+    final key = (_unidadeId, _servico);
     final async = ref.watch(profissionaisProvider(key));
     return async.when(
       loading: () => const _ChipsLoading(),
       error: (e, _) => _InlineErro(e is ApiException ? e.message : 'Erro ao carregar profissionais',
           () => ref.invalidate(profissionaisProvider(key))),
       data: (profs) {
-        if (profs.isEmpty) return const _Hint('Nenhum profissional para este serviço nesta unidade.');
+        // Garante que a profissional pré-preenchida apareça e fique marcada, mesmo que
+        // não esteja no recorte (serviço+unidade) reconstruído do histórico.
+        final lista = [...profs];
+        if (_prof != null && !lista.contains(_prof)) lista.insert(0, _prof!);
+        if (lista.isEmpty) return const _Hint('Nenhum profissional para este serviço nesta unidade.');
         return Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: profs
+          children: lista
               .map((p) => ChoiceChip(
                     label: Text(p),
                     selected: _prof == p,
@@ -246,7 +310,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   Widget _slotsArea() {
     if (_prof == null) return const _Hint('Escolha um profissional para ver os horários.');
     if (_data == null) return const _Hint('Escolha uma data para ver os horários.');
-    final key = (_ymd(_data!), _prof!, widget.servico);
+    final key = (_ymd(_data!), _prof!, _servico);
     final async = ref.watch(disponibilidadeProvider(key));
     return async.when(
       loading: () => const Padding(
@@ -259,8 +323,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         if (!disp.aberto) return _Hint('Indisponível: ${disp.motivo ?? 'salão fechado'}.', icon: Icons.block);
         final livres = disp.livres;
         if (livres.isEmpty) return const _Hint('Sem horários disponíveis nesse dia.', icon: Icons.event_busy);
+        final sugestoes = _sugestoesValidas(livres);
         // Grade fixa: todas as células com o mesmo tamanho.
-        return GridView.count(
+        final grade = GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: 4,
@@ -268,6 +333,29 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
           crossAxisSpacing: 10,
           childAspectRatio: 2.2,
           children: livres.map((s) => _slotCell(s.hora)).toList(),
+        );
+        if (sugestoes.isEmpty) return grade;
+        // Atalhos para os horários que combinam com o pedido (a pessoa ainda confirma).
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Sugestões para o que você pediu',
+                style: TextStyle(fontWeight: FontWeight.w600, color: LummaColors.mauveDark, fontSize: 13)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: sugestoes
+                  .map((h) => ActionChip(
+                        label: Text(h),
+                        backgroundColor: LummaColors.pink,
+                        onPressed: () => setState(() => _slot = h),
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 16),
+            grade,
+          ],
         );
       },
     );

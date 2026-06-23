@@ -66,7 +66,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/agendar',
         parentNavigatorKey: _rootKey,
-        builder: (c, s) => BookingScreen(servico: s.extra as String?),
+        builder: (c, s) => BookingScreen(prefill: s.extra as BookingPrefill?),
       ),
       GoRoute(
         path: '/confirmacao',
