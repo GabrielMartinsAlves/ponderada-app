@@ -113,6 +113,37 @@ A listagem filtra por **e-mail exato** do usuário autenticado (decisão conscie
 [decisoes-tecnicas.md](decisoes-tecnicas.md)). No POST, a duração e o valor são **derivados do catálogo no
 servidor**, e o que o cliente manda nesses campos é ignorado.
 
+### Agendamento por linguagem natural
+
+```
+POST /api/booking/interpretar                               (Bearer)
+body: { texto: "manicure sexta às 14h com a Aline" }
+200: { intencao: { servico, profissional, unidade, data: "YYYY-MM-DD",
+                   periodo: "manha"|"tarde"|null, hora: "HH:MM"|null },
+       sugestoes_de_horario: [ "09:00", "09:30", ... ],
+       hora_selecionada: "14:00"|null,
+       campos_faltantes: [ "servico", ... ] }
+200 (fallback): { intencao: {...todos null...}, sugestoes_de_horario: [], campos_faltantes: [...], fallback: true }
+429: { error }   // teto diário de interpretações atingido
+422: { error }   // texto ausente
+```
+
+O endpoint converte uma frase em uma intenção de agendamento. O fluxo: injeta o **catálogo real** (serviços,
+profissionais, unidades) e a data de hoje em um prompt, chama um modelo de linguagem para devolver **só JSON**,
+e então **valida cada campo contra o catálogo** antes de confiar nele. O modelo nunca é fonte de verdade:
+serviço e profissional precisam bater exatamente com a lista, `unidade` é resolvida para o `unidade_id`, e data
+no passado vira `null`. Quando o texto cita a profissional mas não a unidade, o backend **escolhe a unidade dela**
+(a única em que atende ou, havendo mais de uma, a com mais horários livres no dia). As `sugestoes_de_horario` saem
+do **mesmo cálculo de disponibilidade** da rota pública (função compartilhada em `lib/booking/disponibilidade.ts`):
+um horário específico pedido e disponível volta em `hora_selecionada` (já marcado no app), e sem horário nem
+período as sugestões vêm da **manhã por padrão**. O endpoint **nunca agenda**: devolve a intenção e os horários
+para o app pré-preencher, e a pessoa confirma no fluxo normal.
+
+A camada de IA é **agnóstica de provedor**: trocar entre OpenAI e Anthropic é só mudar `AI_PROVIDER` no ambiente
+(`lib/ai/client.ts` monta a requisição de cada um e normaliza a resposta para uma string). Um teto diário de
+chamadas (`AI_MAX_CALLS_PER_DAY`) protege o orçamento da chave; ao estourar, o endpoint responde `429` e o app
+desce para o passo a passo. Qualquer falha do modelo, ou a ausência de chave, também resulta em fallback, não em erro.
+
 ## Modelo de dados
 
 Três tabelas e duas views de catálogo. O DDL completo está em [`backend/sql/schema.sql`](../backend/sql/schema.sql)
@@ -188,6 +219,8 @@ sequenceDiagram
 - **Service role só no servidor.** A chave de service role nunca vai para o app; só o backend a usa.
 - **RLS por role** nas tabelas (admin/comercial) para o domínio mais amplo; o app cliente acessa sempre via
   backend, que medeia com a service role.
+- **Chave de IA só no servidor.** A `AI_API_KEY` vive apenas no backend, sem prefixo `NEXT_PUBLIC`; o app só
+  manda o texto e recebe a intenção já validada. A saída do modelo passa sempre pela validação contra o catálogo.
 - **Bearer + refresh.** O app envia o token de acesso; em 401, tenta refresh uma vez antes de cair para o login.
 - **Cleartext HTTP** está habilitado **apenas** para o cenário de desenvolvimento (emulador para `http://10.0.2.2`).
   Em produção, a base URL apontaria para HTTPS.

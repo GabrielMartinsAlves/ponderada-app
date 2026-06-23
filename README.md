@@ -65,6 +65,12 @@ o agendamento é criado no banco, ele recebe uma notificação local de confirma
 No detalhe do agendamento ele pode compartilhar um comprovante, salvar o evento na agenda do celular (arquivo
 `.ics`) e cancelar, e o cancelamento desfaz o lembrete.
 
+Quem prefere ir direto também pode **descrever o agendamento em uma frase** ("manicure sexta de manhã com a
+Aline na Alphaville"). O backend interpreta o texto com um modelo de linguagem, valida cada campo contra o
+catálogo real e devolve a intenção mais horários livres; o app pré-preenche o fluxo e a pessoa confirma. O
+modelo nunca agenda sozinho nem decide preço ou disponibilidade, e se o texto não der para entender o app cai,
+sem ruído, no passo a passo manual.
+
 <table>
 <tr>
 <td align="center" width="50%"><img src="docs/screenshots/f3-03-home-gps.png" width="270"><br><em>Home: saudação, próximo agendamento e as duas unidades ordenadas pela distância real (GPS).</em></td>
@@ -305,6 +311,13 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<SUA_ANON_KEY>
 SUPABASE_SERVICE_ROLE_KEY=<SUA_SERVICE_ROLE_KEY>   # server-only, NUNCA prefixar com NEXT_PUBLIC
 # Opcional, só para aplicar o SQL via script:
 # DATABASE_URL=postgresql://postgres.<ref>:<senha>@aws-0-<region>.pooler.supabase.com:5432/postgres
+
+# Agendamento por linguagem natural (opcional). A chave fica SÓ no backend, nunca em NEXT_PUBLIC.
+# Sem AI_API_KEY, o app simplesmente segue no fluxo manual.
+AI_PROVIDER=openai                 # openai (padrão) ou anthropic
+AI_API_KEY=<SUA_CHAVE>             # OpenAI: sk-...  | Anthropic: sk-ant-...
+AI_MODEL=gpt-4o-mini               # OpenAI: gpt-4o-mini  | Anthropic: claude-haiku-4-5
+AI_MAX_CALLS_PER_DAY=200           # teto diário de chamadas ao modelo
 ```
 
 Onde obter: no painel do Supabase, em **Project Settings → API** (URL e chaves) e **Database → Connection
@@ -488,8 +501,8 @@ passo seria reconciliar identidade por telefone verificado.
 
 ## Checklist de entrega
 
-Marquei com base no que está de fato provado (o smoke final passou em todos os elos de backend; as telas têm as
-capturas desta documentação). O que ainda depende de mim (gravar o vídeo e publicar o repositório) está sinalizado.
+Marquei com base no que está de fato provado: o smoke final passou em todos os elos de backend, as telas têm as
+capturas desta documentação e o vídeo de demonstração está no repositório.
 
 | Item | Status | Evidência |
 |------|--------|-----------|
@@ -507,11 +520,11 @@ capturas desta documentação). O que ainda depende de mim (gravar o vídeo e pu
 | "Salvar na agenda" (.ics) | ✅ | `.ics` válido + Etar (ver _Detalhe: compartilhar, salvar na agenda e cancelar_) |
 | Documentação | ✅ | este README + `docs/` |
 | Repositório público | ✅ | este repositório |
-| Vídeo de demonstração | ⚠️ a gravar | link a inserir após a gravação |
+| Vídeo de demonstração | ✅ | [`docs/video_demo.mp4`](docs/video_demo.mp4) |
 
 ## Vídeo de demonstração
 
-**[link do vídeo de demonstração a inserir]**
+O vídeo está no repositório, em [`docs/video_demo.mp4`](docs/video_demo.mp4), e percorre o fluxo principal do app.
 
 ## Estrutura do repositório
 
