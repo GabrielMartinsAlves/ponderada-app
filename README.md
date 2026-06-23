@@ -28,6 +28,7 @@ cada requisito da atividade e, principalmente, quais foram as partes difíceis e
   - [Criar, confirmar e notificar](#criar-confirmar-e-notificar)
   - [Anti-overbooking: o 409](#anti-overbooking-o-409)
   - [Detalhe: compartilhar, salvar na agenda e cancelar](#detalhe-compartilhar-salvar-na-agenda-e-cancelar)
+- [Agendamento por linguagem natural (IA)](#agendamento-por-linguagem-natural-ia)
 - [Arquitetura](#arquitetura)
 - [Como cada requisito da atividade foi atendido](#como-cada-requisito-da-atividade-foi-atendido)
 - [Stack e bibliotecas, com justificativa](#stack-e-bibliotecas-com-justificativa)
@@ -186,6 +187,41 @@ agenda. E **Cancelar** atualiza o status e desfaz o lembrete agendado.
 </tr>
 </table>
 
+## Agendamento por linguagem natural (IA)
+
+Além do passo a passo, o app aceita um pedido em texto livre. A pessoa escreve algo como "manicure sexta de manhã
+com a Aline" e o app monta o agendamento a partir disso, sem nunca reservar sozinho: ela revisa o que veio
+preenchido e confirma.
+
+Como funciona, do toque ao horário:
+
+1. O app envia o texto para `POST /api/booking/interpretar` (autenticado).
+2. O backend injeta o catálogo real (serviços, profissionais, unidades) e a data de hoje num prompt e pede ao
+   modelo de linguagem uma resposta só em JSON.
+3. A saída do modelo é validada campo a campo contra o catálogo: serviço e profissional precisam existir, a
+   unidade vira o identificador real, data no passado e horário inválido são descartados.
+4. Quando a frase cita a profissional mas não a unidade, o backend escolhe a unidade dela, a única em que atende
+   ou, havendo mais de uma, a com mais horários livres no dia.
+5. Os horários sugeridos saem do mesmo cálculo de disponibilidade da reserva normal. Um horário específico pedido
+   e livre já vem selecionado; sem horário nem período, as sugestões vêm da manhã por padrão.
+6. O app abre a tela de agendamento pré-preenchida (serviço, unidade, profissional, data e horário) e a pessoa
+   confirma.
+
+Decisões que sustentam a feature:
+
+- **O modelo nunca é fonte de verdade.** Ele só propõe; quem decide serviço, profissional, unidade, preço,
+  duração e disponibilidade é o backend, validando contra o catálogo e o cálculo de horários. Assim uma
+  alucinação não vira um agendamento inválido.
+- **Chave só no servidor.** A `AI_API_KEY` vive apenas no backend, sem prefixo `NEXT_PUBLIC`. O app só manda o
+  texto e recebe a intenção já validada.
+- **Agnóstico de provedor.** Trocar entre OpenAI e Anthropic é só mudar `AI_PROVIDER` no ambiente; o código que
+  chama o modelo normaliza a resposta dos dois.
+- **Degrada com elegância.** Sem chave configurada, com falha do modelo ou ao atingir o teto diário de chamadas
+  (`AI_MAX_CALLS_PER_DAY`, que responde `429`), o app simplesmente segue no passo a passo manual, sem erro na tela.
+
+O contrato completo do endpoint está em
+[docs/arquitetura.md](docs/arquitetura.md#agendamento-por-linguagem-natural).
+
 ## Arquitetura
 
 São três camadas, cada uma com uma responsabilidade clara:
@@ -258,8 +294,9 @@ As decisões técnicas, em formato de registro, estão em **[docs/decisoes-tecni
 | **Interface coerente** | Design system próprio (cores, tipografia, componentes) consistente em todas as telas | `mobile/lib/core/theme/`, `mobile/lib/shared/widgets/` |
 | **Erro / loading / vazio** | Todo consumo de API trata os três estados via `AsyncValue.when` + componentes de estado | `mobile/lib/shared/widgets/state_views.dart`, telas em `features/` |
 | **"Salvar na agenda" (extra)** | Gera `.ics` (iCalendar, fuso de SP) e abre no app de agenda | `comprovante_helper.dart` (open_filex) |
+| **Agendamento por linguagem natural (extra)** | Texto livre vira intenção validada pelo backend e pré-preenche o fluxo; o modelo nunca é fonte de verdade | `backend/lib/ai/`, `backend/app/api/booking/interpretar/`, `mobile/lib/features/services/interpretar_repository.dart` |
 | **Documentação** | Este README + `docs/arquitetura.md` + `docs/decisoes-tecnicas.md` | `README.md`, `docs/` |
-| **Vídeo** | Demonstração das features em vídeo (link a inserir após a gravação) | _ver Vídeo de demonstração_ |
+| **Vídeo** | Demonstração das features em vídeo | [`docs/video_demo.mp4`](docs/video_demo.mp4) |
 | **Repositório público** | Este repositório no GitHub | raiz do repositório |
 
 ## Stack e bibliotecas, com justificativa
@@ -518,6 +555,7 @@ capturas desta documentação e o vídeo de demonstração está no repositório
 | Interface coerente | ✅ | design system próprio |
 | Tratamento de erro/loading/vazio | ✅ | `state_views.dart`, telas |
 | "Salvar na agenda" (.ics) | ✅ | `.ics` válido + Etar (ver _Detalhe: compartilhar, salvar na agenda e cancelar_) |
+| Agendamento por linguagem natural (IA, extra) | ✅ | `backend/lib/ai/` + `/interpretar` (ver _Agendamento por linguagem natural (IA)_) |
 | Documentação | ✅ | este README + `docs/` |
 | Repositório público | ✅ | este repositório |
 | Vídeo de demonstração | ✅ | [`docs/video_demo.mp4`](docs/video_demo.mp4) |
